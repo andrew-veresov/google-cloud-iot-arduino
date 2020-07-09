@@ -28,6 +28,7 @@ class CloudIoTCoreMqtt {
     int __max_backoff__ = 60000; // maximum backoff, ms
     int __jitter__ = 500; // max random jitter, ms
     int _backoff_at_millis; // time to wait from program execution before mqtt client connection creation
+	  unsigned long __last_retry_at = 0;
     unsigned long iat = 0; // "Issued At Time" time parameter for jwt
     boolean logConnect = true;
     boolean useLts = false;
@@ -36,6 +37,8 @@ class CloudIoTCoreMqtt {
     MQTTClient *mqttClient;
     Client *netClient;
     CloudIoTCoreDevice *device;
+
+    void increaseBackoff();
 
   public:
     CloudIoTCoreMqtt(MQTTClient *mqttClient, Client *netClient, CloudIoTCoreDevice *device);

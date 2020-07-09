@@ -32,68 +32,65 @@ CloudIoTCoreMqtt::CloudIoTCoreMqtt(
 }
 
 void CloudIoTCoreMqtt::loop() {
-  if (millis() > device->getExpMillis() && mqttClient->connected()) {
+  bool needToReconnect = false;
+  if (millis() > device->getExpMillis()) {
     // reconnect
-    Serial.println("Reconnecting before JWT expiration");
+    Serial.println(F("Reconnecting before JWT expiration"));
     iat = 0; // Force JWT regeneration
-    getJwt(); // Regenerate JWT using device function
-    mqttClient->disconnect();
-    mqttConnect(true); // TODO: should we skip closing connection
+	  if (mqttClient->connected()) mqttClient->disconnect();
+    needToReconnect = true;
+  }
+  if (!mqttClient->connected() && abs(this->__last_retry_at - millis()) >= this->__backoff__) {
+    // reconnect
+    Serial.println(F("Reconnecting with back-off"));
+    needToReconnect = true;
+    iat = 0; // Force JWT regeneration
+  }
+  if (needToReconnect) {
+    mqttConnect(); // TODO: should we skip closing connection
   }
   this->mqttClient->loop();
 }
 
+void CloudIoTCoreMqtt::increaseBackoff() {
+    // See https://cloud.google.com/iot/docs/how-tos/exponential-backoff
+    if (this->__backoff__ < this->__minbackoff__) {
+      this->__backoff__ = this->__minbackoff__;
+    }
+    this->__backoff__ = (this->__backoff__ * this->__factor__) + random(this->__jitter__);
+    if (this->__backoff__ > this->__max_backoff__) {
+      this->__backoff__ = this->__max_backoff__;
+    }
+    Serial.printf("Back-off: %ims\n", this->__backoff__);
+}
 
 void CloudIoTCoreMqtt::mqttConnect(bool skip) {
-  Serial.print("\nconnecting...");
-  bool keepgoing = true;
-  while (keepgoing) {
-    bool result =
-        this->mqttClient->connect(
-            device->getClientId().c_str(),
-            "unused",
-            getJwt().c_str(),
-            skip);
+  Serial.print(F("Connecting MQTT... "));
+  if (iat == 0) {
+    jwt = getJwt(); // Regenerate JWT using device function
+  }
+  this->__last_retry_at = millis();
+  bool result =
+      this->mqttClient->connect(
+          device->getClientId().c_str(),
+          "unused",
+          jwt.c_str(),
+          false);
 
-    if (this->mqttClient->lastError() != LWMQTT_SUCCESS && result){
-      // TODO: refactorme
-      // Inform the client why it could not connect and help debugging.
-      logError();
-      logReturnCode();
-      logConfiguration(false);
+  Serial.println(mqttClient->connected() ? "connected" : "not connected");
 
-      // See https://cloud.google.com/iot/docs/how-tos/exponential-backoff
-      if (this->__backoff__ < this->__minbackoff__) {
-        this->__backoff__ = this->__minbackoff__;
-      }
-      this->__backoff__ = (this->__backoff__ * this->__factor__) + random(this->__jitter__);
-      if (this->__backoff__ > this->__max_backoff__) {
-        this->__backoff__ = this->__max_backoff__;
-      }
-
-      // Clean up the client
-      this->mqttClient->disconnect();
-      skip = false;
-      Serial.println("Delaying " + String(this->__backoff__) + "ms");
-      delay(this->__backoff__);
-      keepgoing = true;
-    } else {
-      Serial.println(mqttClient->connected() ? "connected" : "not connected");
-      if (!mqttClient->connected()) {
-        Serial.println("Settings incorrect or missing a cyper for SSL");
-        mqttClient->disconnect();
-        logConfiguration(false);
-        skip = false;
-        keepgoing = true;
-        Serial.println("Waiting 60 seconds, retry will likely fail");
-        delay(this->__max_backoff__);
-      } else {
-        // We're now connected
-        Serial.println("\nLibrary connected!");
-        keepgoing = false;
-        this->__backoff__ = this->__minbackoff__;
-      }
-    }
+  if (this->mqttClient->lastError() != LWMQTT_SUCCESS && !result){
+    // TODO: refactorme
+    // Inform the client why it could not connect and help debugging.
+    Serial.println(F("Settings incorrect or missing a cyper for SSL"));
+    logError();
+    logReturnCode();
+    logConfiguration(false);
+    increaseBackoff();
+  } else {
+      // We're now connected
+      Serial.println(F("Library connected!"));
+      this->__backoff__ = this->__minbackoff__;
   }
 
   // Set QoS to 1 (ack) for configuration messages
@@ -105,13 +102,17 @@ void CloudIoTCoreMqtt::mqttConnect(bool skip) {
 }
 
 void CloudIoTCoreMqtt::mqttConnectAsync(bool skip) {
-  Serial.print("\nconnecting...");
+  Serial.print(F("Connecting MQTT async [NOT COMPLETE IMPLEMENTATION]..."));
+  if (iat == 0) {
+    jwt = getJwt(); // Regenerate JWT using device function
+  }
+  this->__last_retry_at = millis();
 
   bool result =
       this->mqttClient->connect(
           device->getClientId().c_str(),
           "unused",
-          getJwt().c_str(),
+          jwt.c_str(),
           skip);
 
   if (this->mqttClient->lastError() != LWMQTT_SUCCESS && result == true){
@@ -121,29 +122,16 @@ void CloudIoTCoreMqtt::mqttConnectAsync(bool skip) {
     logReturnCode();
     logConfiguration(false);
 
-    // See https://cloud.google.com/iot/docs/how-tos/exponential-backoff
-    if (this->__backoff__ < this->__minbackoff__) {
-      this->__backoff__ = this->__minbackoff__;
-    }
-    this->__backoff__ = (this->__backoff__ * this->__factor__) + random(this->__jitter__);
-    if (this->__backoff__ > this->__max_backoff__) {
-      this->__backoff__ = this->__max_backoff__;
-    }
-
-    // Clean up the client
-    this->mqttClient->disconnect();
-    skip = false;
-    // Serial.println("Delaying " + String(this->__backoff__) + "ms");
-    // delay(this->__backoff__);
+    increaseBackoff();
   } else {
     Serial.println(mqttClient->connected() ? "connected" : "not connected");
     if (!mqttClient->connected()) {
       Serial.println("No internet or Settings incorrect or missing a cyper for SSL");
       mqttClient->disconnect();
       logConfiguration(false);
-      skip = false;
       Serial.println("\naborting mqtt connection attempt, lets rety later...\tLibrary not connected!");
-      // delay(this->__max_backoff__);
+
+      increaseBackoff();
     } else {
       // We're now connected
       Serial.println("\nLibrary connected!");
