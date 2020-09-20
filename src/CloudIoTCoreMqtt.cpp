@@ -127,7 +127,7 @@ void CloudIoTCoreMqtt::mqttConnectAsync(bool skip) {
     Serial.println(mqttClient->connected() ? "connected" : "not connected");
     if (!mqttClient->connected()) {
       Serial.println("No internet or Settings incorrect or missing a cyper for SSL");
-      mqttClient->disconnect();
+      //mqttClient->disconnect();
       logConfiguration(false);
       Serial.println("\naborting mqtt connection attempt, lets rety later...\tLibrary not connected!");
 
@@ -149,10 +149,14 @@ void CloudIoTCoreMqtt::mqttConnectAsync(bool skip) {
 }
 
 void CloudIoTCoreMqtt::startMQTT() {
+  int port = CLOUD_IOT_CORE_MQTT_PORT;
+  if (this->use443Port) {
+    port = CLOUD_IOT_CORE_HTTP_PORT;
+  }
   if (this->useLts) {
-    this->mqttClient->begin(CLOUD_IOT_CORE_MQTT_HOST_LTS, CLOUD_IOT_CORE_MQTT_PORT, *netClient);
+    this->mqttClient->begin(CLOUD_IOT_CORE_MQTT_HOST_LTS, port, *netClient);
   } else {
-    this->mqttClient->begin(CLOUD_IOT_CORE_MQTT_HOST, CLOUD_IOT_CORE_MQTT_PORT, *netClient);
+    this->mqttClient->begin(CLOUD_IOT_CORE_MQTT_HOST, port, *netClient);
   }
   this->mqttClient->onMessage(messageReceived);
 }
@@ -292,4 +296,8 @@ void CloudIoTCoreMqtt::setLogConnect(boolean enabled) {
 
 void CloudIoTCoreMqtt::setUseLts(boolean enabled) {
   this->useLts = enabled;
+}
+
+void CloudIoTCoreMqtt::setUse443Port(boolean enabled) {
+  this->use443Port = enabled;
 }

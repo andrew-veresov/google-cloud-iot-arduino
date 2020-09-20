@@ -32,6 +32,7 @@ class CloudIoTCoreMqtt {
     unsigned long iat = 0; // "Issued At Time" time parameter for jwt
     boolean logConnect = true;
     boolean useLts = false;
+    boolean use443Port = false;
     String jwt;
 
     MQTTClient *mqttClient;
@@ -64,5 +65,6 @@ class CloudIoTCoreMqtt {
     void onConnect();
     void setLogConnect(boolean enabled);
     void setUseLts(boolean enabled);
+    void setUse443Port(boolean enabled);
 };
 #endif // __CLOUDIOTCORE_MQTT_H__
